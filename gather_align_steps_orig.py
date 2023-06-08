@@ -18,9 +18,6 @@ nlp = spacy.load('en_core_web_sm')
 sent_tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/paraphrase-mpnet-base-v2")
 
 def get_next_character(text_list, index1, index2):
-    '''
-    Gets next character from a text list. Index 1 -> rows (entry), Index 2 -> cols (word).
-    '''
     if index1 == len(text_list):
         return None, index1, index2
     if index2 == len(text_list[index1]):
@@ -30,9 +27,6 @@ def get_next_character(text_list, index1, index2):
     return text_list[index1][index2], index1, index2
 
 def align_after_postprocess(postprocessed, original):
-    '''
-    
-    '''
     index_map = {}
     speech_segment_index = 0
     within_segment_index = 0
@@ -225,41 +219,39 @@ def remove_repeat_ngrams(text_list, min_n=3, max_n=8, return_segment_ids=False):
     return ' '.join(new_tokens)
 
 def process_video(video_id, args, input_steps, transcripts, tokenizer, punct_cap_model, output_queue):
-    '''
-    Main function that processes the video. Takes in arguments:
-    - video_id: 
-    - args:
-    - input_steps:
-    - transcripts:
-    - tokenizer:
-    - punct_cap_model:
-    - output_queue:
-    '''
     prompt = "Write the steps of the task that the person is demonstrating, based on the noisy transcript.\nTranscript: |||1\nSteps:\n1."
     print('here3')
-    # Indexes into transcripts if argument is passed, else processes it
+    # RUN IF TRANSCRIPTS HAS BEEN PASSED IN
     if transcripts is not None:
         original = transcripts[video_id]
     else:
+        # OPEN TRANSCRIPTS PATH, QUERY USING video_id.csv
         f = open(os.path.join(args.transcripts_path, video_id+".csv"))
+        # READ LINES OF TRANSCRIPT
         lines = f.readlines()
+        # TEXT - ALL CAPTIONS OF VIDEO ID, START - ALL START TIMESTAMPS, END - ALL END TIMESTAMPS
         original = {"text": [], "start": [], "end": []}
         for line in lines[1:]:
             parts = line.split(',')
             original["start"].append(float(parts[0]))
             original["end"].append(float(parts[1]))
             original["text"].append(parts[-1].strip())
+    # TRANSCRIPT - JOINED TEXT OF ALL CAPTIONS
     transcript = " ".join(original["text"])
-    # Removes repeated n-grams
+    # DEDUPLICATES THE TEXT FOR REPEATED CAPTIONS
     deduplicated_text, new_segment_ids = remove_repeat_ngrams(original["text"], min_n=3, max_n=9, return_segment_ids=True)
     deduplicated_tokens = deduplicated_text.split()
+    # RESETS 'TEXT' VARIABLES
     original["text"] = [[] for _ in range(len(original["text"]))]
+    # ADD SEGMENT IDS FOR DEDUPLICATED TEXT, APENDS THEM
     for token, new_id in zip(deduplicated_tokens, new_segment_ids):
         original["text"][new_id].append(token)
+    # COMBINES DEDUPLICATED TEXT
     original["text"] = [" ".join(lst) for lst in original["text"]]
     transcript = " ".join(original["text"])
-    # Creates the output path, adds capitalization and other formatting if specified
+    # DEALS WITH FORMATTING OPTIONS
     if not args.no_formatting:
+        # ADDS CAPITALIZATION AND FORMATS TRANSCRIPT??
         if args.formatted_transcripts_path is not None:
             fname = os.path.join(args.formatted_transcripts_path, video_id+".txt")
         if args.formatted_transcripts_path is not None and os.path.exists(fname):
@@ -267,17 +259,20 @@ def process_video(video_id, args, input_steps, transcripts, tokenizer, punct_cap
             transcript = f.readlines()[0]
         else:
             transcript = punct_cap_model.add_punctuation_capitalization([transcript])[0]
-    # Tokenizes transcript and saves it as `tokens`
+    # TOKENIZES TRANSCRIPT
     tokens = tokenizer(transcript)
     print(video_id, len(transcript), len(tokens["input_ids"]))
+    # ENSURES TOKEN LENGTH IS LESS THAN MAX TOKEN LENGTH (1600)
     while len(tokens["input_ids"]) > 1600:
         transcript = transcript[:-100]
         tokens = tokenizer(transcript)
+    # ARGS INPUT STEPS - TAKES IN INPUT STEPS?? NOT SURE IF NECESSARY
     if args.input_steps_path is not None:
         if video_id not in input_steps:
             return
         steps = input_steps[video_id]["steps"]
     else:
+        # MAKES OPENAI API CALL
         if video_id in finished:
             return
         input_text = prompt.replace("|||1", transcript)
@@ -301,6 +296,7 @@ def process_video(video_id, args, input_steps, transcripts, tokenizer, punct_cap
             elif num_attempts < args.max_attempts:
                 steps = []
     output_dict = {"video_id": video_id, "steps": steps, "transcript": transcript}
+    # DEALS WITH THE DROP DTW CODE
     if not args.no_align:
         segments = align_text(transcript, original, steps, sent_model, args.num_workers, not args.no_dtw, args.dtw_window_size)
         print(segments)
@@ -337,51 +333,29 @@ if __name__ == "__main__":
     parser.add_argument("--no_dtw", action="store_true")
     parser.add_argument("--dtw_window_size", type=int, default=1000000)
     args = parser.parse_args()
-    
-    '''
-    Specify device, CPU vs. GPU
-    '''
+
     if not args.no_align:
         if args.cpu:
             sent_model = SentenceTransformer('sentence-transformers/paraphrase-mpnet-base-v2').cpu()
         else:
             sent_model = SentenceTransformer('sentence-transformers/paraphrase-mpnet-base-v2').cuda()
     # sent_model = AutoModel.from_pretrained('sentence-transformers/paraphrase-mpnet-base-v2').cuda()
-
-    '''
-    Args no formatting - load pretrained punctuation capitalization model
-    '''
     if not args.no_formatting:
         punct_cap_model = PunctuationCapitalizationModel.from_pretrained("punctuation_en_bert")
         if args.cpu:
             punct_cap_model = punct_cap_model.cpu()
     tokenizer = AutoTokenizer.from_pretrained("gpt2")
 
-    '''
-    Opens list of videos
-    '''
     f = open(args.video_list_path)
     lines = f.readlines()
     video_ids = [line.strip().split()[0].split('.')[0] for line in lines]
-    '''
-    Loads transcripts
-    '''
     transcripts = None
     if args.transcripts_path[-5:] == ".json":
         f = open(args.transcripts_path)
         transcripts = json.load(f)
-    '''
-    Video End-index, can be used to truncate # videos read
-    '''
     if args.end_index is not None:
         video_ids = video_ids[:args.end_index]
-    '''
-    Video Start-index
-    '''
     video_ids = video_ids[args.start_index:]
-    '''
-    Ending: output is read and the video id is added to set "finished"
-    '''
     finished = set()
     if os.path.exists(args.output_path):
         fout = open(args.output_path)
@@ -396,9 +370,6 @@ if __name__ == "__main__":
         fout = open(args.output_path, 'a')
     else:
         fout = open(args.output_path, 'w')
-    '''
-    Reads input_steps
-    '''
     input_steps = None
     if args.input_steps_path is not None:
         f = open(args.input_steps_path)
@@ -411,16 +382,10 @@ if __name__ == "__main__":
     watcher = pool.apply_async(output_listener, (q, args.output_path))
     print('here1', pool._processes)
     jobs = []"""
-    '''
-    Goes through list of all video_ids, if video is in set finished, skip and move to next unfinished video
-    '''
     for video_id in tqdm(video_ids):
         if video_id in finished:
             continue
         # job = pool.apply_async(process_video, (video_id, args, input_steps, transcripts, tokenizer, punct_cap_model, q))
-        '''
-        Call process_video here
-        '''
         process_video(video_id, args, input_steps, transcripts, tokenizer, punct_cap_model, fout)
         # print('here', len(jobs))
         # jobs.append(job)

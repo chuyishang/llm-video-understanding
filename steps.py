@@ -16,6 +16,7 @@ import _io
 
 nlp = spacy.load('en_core_web_sm')
 sent_tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/paraphrase-mpnet-base-v2")
+openai.api_key = "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"
 
 def get_next_character(text_list, index1, index2):
     '''
@@ -236,12 +237,16 @@ def process_video(video_id, args, input_steps, transcripts, tokenizer, output_qu
     - output_queue:
     '''
     prompt = "Write the steps of the task that the person is demonstrating, based on the noisy transcript.\nTranscript: |||1\nSteps:\n1."
-    print('here3')
+    #print('here3')
     # Indexes into transcripts if argument is passed, else processes it
-    print("TRANSCRIPTS:", transcripts)
+    #print("TRANSCRIPTS:", transcripts)
     if transcripts is not None:
-        original = transcripts[video_id]
+        try:
+            transcript = transcripts[video_id]
+        except:
+            return
     # Creates the output path, adds capitalization and other formatting if specified
+    '''
     if not args.no_formatting:
         if args.formatted_transcripts_path is not None:
             fname = os.path.join(args.formatted_transcripts_path, video_id+".txt")
@@ -250,6 +255,7 @@ def process_video(video_id, args, input_steps, transcripts, tokenizer, output_qu
             transcript = f.readlines()[0]
         #else:
         #   transcript = punct_cap_model.add_punctuation_capitalization([transcript])[0]
+    '''
     # Tokenizes transcript and saves it as `tokens`
     tokens = tokenizer(transcript)
     print(video_id, len(transcript), len(tokens["input_ids"]))
@@ -324,7 +330,7 @@ if __name__ == "__main__":
     '''
     Specify device, CPU vs. GPU
     '''
-    print(args)
+    #print(args)
 
     if not args.no_align:
         if args.cpu:
@@ -402,7 +408,7 @@ if __name__ == "__main__":
     Goes through list of all video_ids, if video is in set finished, skip and move to next unfinished video
     '''
     for video_id in tqdm(video_ids):
-        print(video_id, finished)
+        #print(video_id, finished)
         if video_id in finished:
             continue
         # job = pool.apply_async(process_video, (video_id, args, input_steps, transcripts, tokenizer, punct_cap_model, q))
