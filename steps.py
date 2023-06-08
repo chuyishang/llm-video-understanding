@@ -72,22 +72,12 @@ def process_video(video_id, args, input_steps, transcripts, tokenizer, output_qu
                 steps = []
     output_dict = {"video_id": video_id, "steps": steps, "transcript": transcript}
     if not args.no_align:
-        #TODO
+        #TODO: Compare similarities
         pass
     if isinstance(output_queue, _io.TextIOWrapper):
         output_queue.write(json.dumps(output_dict)+'\n')
     else:
         output_queue.put(json.dumps(output_dict)+'\n')
-
-def output_listener(output_queue, output_filename):
-    mode = 'a+' if os.path.exists(output_filename) else 'w'
-    with open(output_filename, 'a+') as fout:
-        while True:
-            output = output_queue.get()
-            if output == 'kill':
-                break
-            fout.write(output)
-            fout.flush()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -178,12 +168,6 @@ if __name__ == "__main__":
         lines = f.readlines()
         input_steps = [json.loads(line) for line in lines]
         input_steps = {datum["video_id"]: datum for datum in input_steps}
-    """manager = mp.Manager()
-    q = manager.Queue()
-    pool = mp.Pool(args.num_workers+2)
-    watcher = pool.apply_async(output_listener, (q, args.output_path))
-    print('here1', pool._processes)
-    jobs = []"""
     '''
     Goes through list of all video_ids, if video is in set finished, skip and move to next unfinished video
     '''
@@ -198,9 +182,4 @@ if __name__ == "__main__":
         process_video(video_id, args, input_steps, transcripts, tokenizer, fout)
         # print('here', len(jobs))
         # jobs.append(job)
-    """for job in jobs:
-        job.get()
-    q.put('kill')
-    pool.close()
-    pool.join()"""
     fout.close()
