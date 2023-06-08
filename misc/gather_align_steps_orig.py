@@ -6,7 +6,7 @@ import numpy as np
 import openai
 import random
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, AutoModel
-from nemo.collections.nlp.models import PunctuationCapitalizationModel
+#from nemo.collections.nlp.models import PunctuationCapitalizationModel
 import argparse
 from tqdm import tqdm
 import spacy
@@ -218,7 +218,7 @@ def remove_repeat_ngrams(text_list, min_n=3, max_n=8, return_segment_ids=False):
         return ' '.join(new_tokens), new_segment_ids
     return ' '.join(new_tokens)
 
-def process_video(video_id, args, input_steps, transcripts, tokenizer, punct_cap_model, output_queue):
+def process_video(video_id, args, input_steps, transcripts, tokenizer, output_queue, punct_cap_model=None):
     prompt = "Write the steps of the task that the person is demonstrating, based on the noisy transcript.\nTranscript: |||1\nSteps:\n1."
     print('here3')
     # RUN IF TRANSCRIPTS HAS BEEN PASSED IN
@@ -340,15 +340,20 @@ if __name__ == "__main__":
         else:
             sent_model = SentenceTransformer('sentence-transformers/paraphrase-mpnet-base-v2').cuda()
     # sent_model = AutoModel.from_pretrained('sentence-transformers/paraphrase-mpnet-base-v2').cuda()
+    '''
     if not args.no_formatting:
         punct_cap_model = PunctuationCapitalizationModel.from_pretrained("punctuation_en_bert")
         if args.cpu:
             punct_cap_model = punct_cap_model.cpu()
+    '''
     tokenizer = AutoTokenizer.from_pretrained("gpt2")
 
     f = open(args.video_list_path)
-    lines = f.readlines()
-    video_ids = [line.strip().split()[0].split('.')[0] for line in lines]
+    #video_ids = [line.strip().split()[0].split('.')[0] for line in lines]
+    content = f.read()
+    print("CONTENT:", content)
+    video_ids = content.split(",")
+    print("VIDEO_IDS:", video_ids)
     transcripts = None
     if args.transcripts_path[-5:] == ".json":
         f = open(args.transcripts_path)
@@ -386,7 +391,7 @@ if __name__ == "__main__":
         if video_id in finished:
             continue
         # job = pool.apply_async(process_video, (video_id, args, input_steps, transcripts, tokenizer, punct_cap_model, q))
-        process_video(video_id, args, input_steps, transcripts, tokenizer, punct_cap_model, fout)
+        process_video(video_id, args, input_steps, transcripts, tokenizer, fout)
         # print('here', len(jobs))
         # jobs.append(job)
     """for job in jobs:
