@@ -6,7 +6,7 @@ import numpy as np
 import openai
 import random
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, AutoModel
-#from nemo.collections.nlp.models import PunctuationCapitalizationModel
+from nemo.collections.nlp.models import PunctuationCapitalizationModel
 import argparse
 from tqdm import tqdm
 import spacy
@@ -347,13 +347,11 @@ if __name__ == "__main__":
             sent_model = SentenceTransformer('sentence-transformers/paraphrase-mpnet-base-v2').cuda()
     # sent_model = AutoModel.from_pretrained('sentence-transformers/paraphrase-mpnet-base-v2').cuda()
     if not args.no_formatting:
-        #punct_cap_model = PunctuationCapitalizationModel.from_pretrained("punctuation_en_bert")
-        punct_cap_model = None
+        punct_cap_model = PunctuationCapitalizationModel.from_pretrained("punctuation_en_bert")
+        #punct_cap_model = None
         if args.cpu:
             punct_cap_model = punct_cap_model.cpu()
     tokenizer = AutoTokenizer.from_pretrained("gpt2")
-
-    punct_cap_model = None
 
     f = open(args.video_list_path)
     lines = f.readlines()
