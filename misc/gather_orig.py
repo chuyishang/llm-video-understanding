@@ -15,9 +15,9 @@ from sentence_transformers import SentenceTransformer
 import multiprocessing as mp
 import _io
 
-#f = open("/home/shang/self/openai-api.txt")
-#openai.api_key = f.readlines()[0]
-openai.api_key = "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"
+f = open("/home/shang/openai-apikey.txt")
+openai.api_key = f.readlines()[0]
+
 nlp = spacy.load('en_core_web_sm')
 #nlp = en_core_web_sm.load()
 sent_tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/paraphrase-mpnet-base-v2")
