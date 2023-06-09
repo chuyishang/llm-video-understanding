@@ -123,7 +123,7 @@ def align_text(text, original_text, steps, sent_model, num_workers, dtw=True, dt
                 section_emb_list = pool.starmap(encode_section, [(sent_model, sents, start, end) for start in range(0, len(sents)) for end in range(start+1, min(start+dtw_window_size+1, len(sents)+1))])
             for emb_dict in section_emb_list:
                 section_emb.update(emb_dict)
-        for i in range(1, len(steps)+1):
+        for i in range(1, len(steps)+1): # would swapping this work? 
             for start in range(start_sent_index, len(sents)):
                 for end in range(start+1, min(start+dtw_window_size+1, len(sents)+1)):
                     section = ' '.join(sents[start:end])
