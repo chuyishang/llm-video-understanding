@@ -74,9 +74,9 @@ def align_text(text, original_text, steps, sent_model, num_workers, dtw=True, dt
     #print("===================")
     sents = [str(sent) for sent in list(doc.sents)]
     steps = steps[:len(sents)]
-    #print("=========================")
-    #print("SENTS:", sents)
-    #print("STEPS:", steps)
+    print("=========================")
+    print("SENTS:", len(sents), sents)
+    print("STEPS:", len(steps), steps)
     #print("=========================")
     step_embs = sent_model.encode(steps)
     text = text.replace('ı', 'i')
@@ -141,16 +141,20 @@ def align_text(text, original_text, steps, sent_model, num_workers, dtw=True, dt
                     last_max = np.max([prev_segment_score]) # , dtw_matrix[i-1,start,end]])
                     dtw_matrix[i,start,end] = similarity+last_max
             # print('good', i, [j for j in range(dtw_matrix.shape[1]) if dtw_matrix[i,j,:].max().item() > -np.inf])
+        # sentence - 1
         end = dtw_matrix.shape[1]-1
+        # steps - 1
         index = dtw_matrix.shape[0]-1
         start = dtw_matrix[index,:,end].argmax().item()
-        print(dtw_matrix[index,:,:end].max().item())
+        #print("=====================")
+        #print("MAX:", dtw_matrix[index,:,:end].max().item(), "START", start, "END", end, "INDEX", index)
+        #print("=====================")
         segments = {index: (start, end)}
         index -= 1
         while index > 0:
             # print(index+1, start, end)
             new_start = int(pointers[index+1,start,end])
-            print(pointer_scores[index+1,start,end])
+            #print(pointer_scores[index+1,start,end])
             if new_start != start:
                 end = start
                 start = new_start
@@ -173,6 +177,10 @@ def align_text(text, original_text, steps, sent_model, num_workers, dtw=True, dt
         print("==============================")
     # text_sans_punct = remove_punctuation(text)
     # assert text_sans_punct.lower() == ' '.join(original_text['text'])
+    #print("==========================")
+    #print("TEXT", text)
+    #print("ORIGINAL TEXT", original_text)
+    #print("==========================")
     postprocess_alignment = align_after_postprocess(text, original_text)
     # print(segments)
     # print(postprocess_alignment)
@@ -180,7 +188,7 @@ def align_text(text, original_text, steps, sent_model, num_workers, dtw=True, dt
     sents = list(doc.sents)
     print("====================")
     print("SEGMENTS:", segments)
-    print("POSTPROC ALIGN:", postprocess_alignment)
+    #print("POSTPROC ALIGN:", postprocess_alignment)
     print("====================")
     # print(text)
     # print(original_text)
@@ -190,9 +198,9 @@ def align_text(text, original_text, steps, sent_model, num_workers, dtw=True, dt
         while str(sents[segments[index][0]]).isspace():
             segments[index] = (segments[index][0]-1, segments[index][1])
         start = sents[segments[index][0]].start_char
-        print("================")
-        print("START:", start)
-        print("================")
+        #print("================")
+        #print("START:", start)
+        #print("================")
         while start not in postprocess_alignment and start < len(text):
             start += 1
         if start not in postprocess_alignment:
@@ -206,6 +214,9 @@ def align_text(text, original_text, steps, sent_model, num_workers, dtw=True, dt
         while end not in postprocess_alignment and end >= 0:
             end -= 1
         assert end in postprocess_alignment
+        #print("=============")
+        #print("POSTPROC START", postprocess_alignment[start], "POSTPROC END",  postprocess_alignment[end])
+        #print("=============")
         aligned_segments[index] = postprocess_alignment[start]+postprocess_alignment[end]
         #print("==================")
         #print('ALIGNED:', ' '.join(original_text['text'][aligned_segments[index][0]:aligned_segments[index][2]+1]), sents[segments[index][0]:segments[index][1]])
