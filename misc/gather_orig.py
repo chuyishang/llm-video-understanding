@@ -16,6 +16,7 @@ import multiprocessing as mp
 import _io
 
 f = open("/home/shang/openai-apikey.txt")
+#print(f.readlines()[0])
 openai.api_key = f.readlines()[0]
 
 nlp = spacy.load('en_core_web_sm')
@@ -70,22 +71,21 @@ def align_text(text, original_text, steps, sent_model, num_workers, dtw=True, dt
     #print("===================")
     doc = nlp(text)
     #print("DOC:", doc)
-    print("===================")
+    #print("===================")
     sents = [str(sent) for sent in list(doc.sents)]
     steps = steps[:len(sents)]
-    print("=========================")
-    # THIS IS VERY QUESTIONABLE (SENTS)
-    print("SENTS:", sents)
-    print("STEPS:", steps)
-    print("=========================")
+    #print("=========================")
+    #print("SENTS:", sents)
+    #print("STEPS:", steps)
+    #print("=========================")
     step_embs = sent_model.encode(steps)
     text = text.replace('ı', 'i')
     if dtw:
         dtw_matrix = np.zeros((len(steps)+1, len(sents)+1, len(sents)+1))
 
-        print("==========================")
-        print(dtw_matrix.shape)
-        print("==========================")
+        #print("==========================")
+        #print(dtw_matrix.shape)
+        #print("==========================")
 
         for i in range(len(steps)+1):
             for start in range(len(sents)+1):
@@ -178,6 +178,10 @@ def align_text(text, original_text, steps, sent_model, num_workers, dtw=True, dt
     # print(postprocess_alignment)
     aligned_segments = {}
     sents = list(doc.sents)
+    print("====================")
+    print("SEGMENTS:", segments)
+    print("POSTPROC ALIGN:", postprocess_alignment)
+    print("====================")
     # print(text)
     # print(original_text)
     # print(' '.join(original_text['text']))
@@ -186,6 +190,9 @@ def align_text(text, original_text, steps, sent_model, num_workers, dtw=True, dt
         while str(sents[segments[index][0]]).isspace():
             segments[index] = (segments[index][0]-1, segments[index][1])
         start = sents[segments[index][0]].start_char
+        print("================")
+        print("START:", start)
+        print("================")
         while start not in postprocess_alignment and start < len(text):
             start += 1
         if start not in postprocess_alignment:
