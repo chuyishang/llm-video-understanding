@@ -16,7 +16,8 @@ import _io
 
 nlp = spacy.load('en_core_web_sm')
 sent_tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/paraphrase-mpnet-base-v2")
-openai.api_key = "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"
+f = open("/home/shang/self/openai-api.txt")
+openai.api_key = f.readlines()[0]
 
 def process_video(video_id, args, input_steps, transcripts, tokenizer, output_queue, punct_cap_model=None):
     '''Main function that processes the video. Takes in arguments:

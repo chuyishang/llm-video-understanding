@@ -14,7 +14,8 @@ from sentence_transformers import SentenceTransformer
 import multiprocessing as mp
 import _io
 
-openai.api_key="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"
+f = open("/home/shang/self/openai-api.txt")
+openai.api_key = f.readlines()[0]
 nlp = spacy.load('en_core_web_sm')
 sent_tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/paraphrase-mpnet-base-v2")
 
@@ -63,14 +64,26 @@ def remove_punctuation(text):
     return new_text
 
 def align_text(text, original_text, steps, sent_model, num_workers, dtw=True, dtw_window_size=10000000000, dtw_start_offset=False):
-    print("===================")
+    #print("===================")
     doc = nlp(text)
+    #print("DOC:", doc)
+    print("===================")
     sents = [str(sent) for sent in list(doc.sents)]
     steps = steps[:len(sents)]
+    print("=========================")
+    # THIS IS VERY QUESTIONABLE (SENTS)
+    print("SENTS:", sents)
+    print("STEPS:", steps)
+    print("=========================")
     step_embs = sent_model.encode(steps)
     text = text.replace('ı', 'i')
     if dtw:
         dtw_matrix = np.zeros((len(steps)+1, len(sents)+1, len(sents)+1))
+
+        print("==========================")
+        print(dtw_matrix.shape)
+        print("==========================")
+
         for i in range(len(steps)+1):
             for start in range(len(sents)+1):
                 for end in range(len(sents)+1):
@@ -142,7 +155,7 @@ def align_text(text, original_text, steps, sent_model, num_workers, dtw=True, dt
             #     print('bad', pointers[index+1,start,end], pointer_scores[index+1,start,end])
             segments[index] = (start, end)
             index -= 1
-        print("PRINT!!:", start_sent_index, segments)
+        #print("PRINT!!:", start_sent_index, segments)
     else:
         sent_emb = sent_model.encode(sents)
         scores = torch.matmul(torch.from_numpy(step_embs), torch.from_numpy(sent_emb).t())
@@ -151,6 +164,10 @@ def align_text(text, original_text, steps, sent_model, num_workers, dtw=True, dt
         for i in range(1, len(steps)+1):
             print(steps[i-1], '|||', sents[matched_sentences[i-1]])
             segments[i] = (max(0, matched_sentences[i-1]-1), min(len(sents), matched_sentences[i-1]+2))
+        print("==============================")
+        print("SEGMENTS LENGTH:", len(segments))
+        print("SEGMENTS:", segments)
+        print("==============================")
     # text_sans_punct = remove_punctuation(text)
     # assert text_sans_punct.lower() == ' '.join(original_text['text'])
     postprocess_alignment = align_after_postprocess(text, original_text)
@@ -180,7 +197,9 @@ def align_text(text, original_text, steps, sent_model, num_workers, dtw=True, dt
             end -= 1
         assert end in postprocess_alignment
         aligned_segments[index] = postprocess_alignment[start]+postprocess_alignment[end]
-        print('aligned', ' '.join(original_text['text'][aligned_segments[index][0]:aligned_segments[index][2]+1]), sents[segments[index][0]:segments[index][1]])
+        #print("==================")
+        #print('ALIGNED:', ' '.join(original_text['text'][aligned_segments[index][0]:aligned_segments[index][2]+1]), sents[segments[index][0]:segments[index][1]])
+        #print("==================")
     return aligned_segments
 
 def remove_repeat_ngrams(text_list, min_n=3, max_n=8, return_segment_ids=False):
