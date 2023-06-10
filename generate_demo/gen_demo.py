@@ -45,5 +45,4 @@ for label in timestamps:
     start = get_seconds(timestamps[label]["time_start"])
     end = get_seconds(timestamps[label]["time_end"])
     clip = VideoFileClip("TvNWLrRzIAM.mp4").subclip(start, end)
-    clip.write_videofile("./clips/step" + str(label) + ".mp4")
-
+    clip.write_videofile("./clips/step" + str(label) + ".mp4", temp_audiofile='temp-audio.m4a', remove_temp=True, codec="libx264", audio_codec="aac")
