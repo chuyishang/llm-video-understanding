@@ -169,23 +169,54 @@ def align_text(text, original_text, steps, sent_model, num_workers, dtw=True, dt
             index -= 1
         #print("PRINT!!:", start_sent_index, segments)
     else:
+
         sent_emb = sent_model.encode(sents)
+
         scores = torch.matmul(torch.from_numpy(step_embs), torch.from_numpy(sent_emb).t())
-        matched_sentences = scores.argmax(dim=-1).tolist()
+        print("SENT EMB:", sent_emb.shape, "STEP EMB:", step_embs.shape, "SCORES", scores.shape)
+        #matched_sentences = scores.argmax(dim=-1).tolist()
+        prev_start = 0
         segments = {}
+
         for i in range(1, len(steps)+1):
-            print(steps[i-1], '|||', sents[matched_sentences[i-1]])
-            segments[i] = (max(0, matched_sentences[i-1]-1), min(len(sents), matched_sentences[i-1]+2))
-        print("==============================")
-        print("SEGMENTS LENGTH:", len(segments))
-        print("SEGMENTS:", segments)
-        print("==============================")
+            step_scores = scores[i-1]
+            #step_rankings = step_scores.argsort()[-len(steps):][::-1]
+            scores_diff = np.diff(step_scores) / step_scores[:-1]
+            top_sent = step_scores[prev_start:].argmax(dim=-1).tolist()
+            if top_sent < prev_start:
+                top_sent = step_scores[prev_start:].argmax(dim=-1).tolist() + prev_start
+            #print(steps[i-1], '|||', sents[matched_sentences[i-1]])
+            #segments[i] = (max(0, matched_sentences[i-1]-1), min(len(sents), matched_sentences[i-1]+2))
+            segments[i] = (max(0, top_sent - 1), min(len(sents), top_sent + 2))
+            prev_start = max(0, top_sent - 1)
+        #print("==============================")
+        #print("SEGMENTS LENGTH:", len(segments))
+        #print("SEGMENTS:", segments)
+        #print("==============================")
     # text_sans_punct = remove_punctuation(text)
     # assert text_sans_punct.lower() == ' '.join(original_text['text'])
     #print("==========================")
     #print("TEXT", text)
     #print("ORIGINAL TEXT", original_text)
     #print("==========================")
+
+    if args.allow_drops:
+        sent_embs = sent_model.encode(sents)
+        sims_arr = [] # [step, sent, sim]
+        for index in segments.keys():
+            start, end = segments[index]
+            #print("INDEX:", index, "STARTEND", start, end)
+            #print("SENT EMB SHAPE:", sent_embs.shape)
+            step_emb = step_embs[index - 1]
+            #print("STEP EMB SHAPE:", step_emb.shape)
+            sims = []
+            for i in range(start, end):
+                sims.append((index, i, sent_embs[i] @ step_emb))
+            sims_arr.append(sims)
+        print(sims_arr)
+
+            
+
     postprocess_alignment = align_after_postprocess(text, original_text)
     # print(segments)
     # print(postprocess_alignment)
@@ -364,6 +395,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_workers", type=int, default=1)
     parser.add_argument("--no_dtw", action="store_true")
     parser.add_argument("--dtw_window_size", type=int, default=1000000)
+    parser.add_argument("--allow_drops", action="store_true")
     args = parser.parse_args()
 
     if not args.no_align:
