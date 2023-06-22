@@ -70,7 +70,7 @@ def remove_punctuation(text):
 def align_text(text, original_text, steps, sent_model, num_workers, dtw=True, dtw_window_size=10000000000, dtw_start_offset=False):
     #print("===================")
     doc = nlp(text)
-    #print("DOC:", doc)
+    print("DOC:", doc)
     #print("===================")
     sents = [str(sent) for sent in list(doc.sents)]
     steps = steps[:len(sents)]
@@ -81,7 +81,7 @@ def align_text(text, original_text, steps, sent_model, num_workers, dtw=True, dt
     step_embs = sent_model.encode(steps)
     text = text.replace('ı', 'i')
     if dtw:
-        dtw_matrix = np.zeros((len(steps)+1, len(sents)+1, len(sents)+1))
+        dtw_matrix = np.zeros((len(steps)+1, len(sents)+1, len(sents)+1)) # dtw matrix size [steps+1, sent+1, sent+1]
 
         #print("==========================")
         #print(dtw_matrix.shape)
@@ -90,32 +90,34 @@ def align_text(text, original_text, steps, sent_model, num_workers, dtw=True, dt
         for i in range(len(steps)+1):
             for start in range(len(sents)+1):
                 for end in range(len(sents)+1):
-                    dtw_matrix[i,start,end] = -np.inf
-        dtw_matrix[0,0,0] = 0
-        pointers = -1*np.ones((len(steps)+1, len(sents)+1, len(sents)+1), dtype=np.int32)
-        pointer_scores = -np.inf*np.ones((len(steps)+1, len(sents)+1, len(sents)+1), dtype=np.float32)
-        start_sent_index = 0
+                    dtw_matrix[i,start,end] = -np.inf # sets everything to -inf
+        dtw_matrix[0,0,0] = 0 # sets start to 0
+        pointers = -1*np.ones((len(steps)+1, len(sents)+1, len(sents)+1), dtype=np.int32) # pointers -> pointer matrix (possibly for keeping track of prev values?)
+        pointer_scores = -np.inf*np.ones((len(steps)+1, len(sents)+1, len(sents)+1), dtype=np.float32) # pointer_scores -> same size matrix of -infs
+        start_sent_index = 0 # sentence start index
+        # if there is offset, can ignore for now
         if dtw_start_offset:
             single_sent_emb = np.stack([sent_model.encode([sent])[0,:] for sent in sents])
             start_scores = (step_embs[:1,:]*single_sent_emb).sum(1)
             start_sent_index = min(max(0, start_scores.argmax()-1), len(sents)-len(steps))
             dtw_matrix[0,start_sent_index,start_sent_index] = 0
+        # section_emb -> empty dic, we append to it later
         section_emb = {}
         if num_workers == 1:
-            batch = []
-            for start in range(start_sent_index, len(sents)):
-                for end in range(start+1, min(start+dtw_window_size+1, len(sents)+1)):
-                    section = ' '.join(sents[start:end])
-                    batch.append((start, end, section))
-                    if len(batch) == 16 or (start == len(sents)-1 and end == len(sents)):
-                        inputs = [item[-1] for item in batch]
-                        outputs = sent_model.encode(inputs)
-                        for item, output in zip(batch, outputs):
-                            section_emb[item[:2]] = output
-                        batch = []
-            if len(batch) > 0:
-                inputs = [item[-1] for item in batch]
-                outputs = sent_model.encode(inputs)
+            batch = [] # batch -> empty arr, we append to it later
+            for start in range(start_sent_index, len(sents)): # outer loop: sentences -> for each sentence
+                for end in range(start+1, min(start+dtw_window_size+1, len(sents)+1)): # for end in (start to smaller of window size or sentence length)
+                    section = ' '.join(sents[start:end]) # section -> joined sentences from start index to end, represents 1 section
+                    batch.append((start, end, section)) # append tuple (start index, end index, section) to batch list
+                    if len(batch) == 16 or (start == len(sents)-1 and end == len(sents)): # when batch is full:
+                        inputs = [item[-1] for item in batch] # inputs -> list of sections (combined sections)
+                        outputs = sent_model.encode(inputs) # out -> encoded inputs (sections)
+                        for item, output in zip(batch, outputs): # item -> batch, output -> outputs (encoded)
+                            section_emb[item[:2]] = output # section_emb[batch[:2]] = --> key is (start, end), val is encoded output, 2 is so that it gets stored in the output section
+                        batch = [] # resets batch if previous batch full
+            if len(batch) > 0: # if batch nonempty: (this is the TAIL CASE)
+                inputs = [item[-1] for item in batch] # inputs = section (-1 is last element)
+                outputs = sent_model.encode(inputs) # same process as before
                 for item, output in zip(batch, outputs):
                     section_emb[item[:2]] = output
         else:
@@ -123,15 +125,18 @@ def align_text(text, original_text, steps, sent_model, num_workers, dtw=True, dt
                 section_emb_list = pool.starmap(encode_section, [(sent_model, sents, start, end) for start in range(0, len(sents)) for end in range(start+1, min(start+dtw_window_size+1, len(sents)+1))])
             for emb_dict in section_emb_list:
                 section_emb.update(emb_dict)
-        for i in range(1, len(steps)+1): # would swapping this work? 
-            for start in range(start_sent_index, len(sents)):
-                for end in range(start+1, min(start+dtw_window_size+1, len(sents)+1)):
-                    section = ' '.join(sents[start:end])
-                    sentence_emb = section_emb[(start,end)] # sent_model.encode([section])[0]
-                    step_emb = step_embs[i-1] # sent_model.encode([steps[i-1]])[0]
-                    similarity = (sentence_emb*step_emb).sum().item()
-                    best_prev_segment = dtw_matrix[i-1,:,start].argmax().item()
-                    prev_segment_score = dtw_matrix[i-1,:,start].max().item()
+        for i in range(1, len(steps)+1): # for step:
+            for start in range(start_sent_index, len(sents)): # for start index:
+                for end in range(start+1, min(start+dtw_window_size+1, len(sents)+1)): # for end index:
+                    #print(f"({i, start, end})")
+                    section = ' '.join(sents[start:end]) # section formed by joined sentences
+                    sentence_emb = section_emb[(start,end)] # sent_model.encode([section])[0] sentence_emb -> encoded sentence embedding for [start to end]
+                    step_emb = step_embs[i-1] # step_emb -> step embedding
+                    similarity = (sentence_emb*step_emb).sum().item() # take dot product similarity
+                    best_prev_segment = dtw_matrix[i-1,:,start].argmax().item() # [step -1, :, start sentence]
+                    #print("BEST PREV SEG:", sha)
+                    prev_segment_score = dtw_matrix[i-1,:,start].max().item() # [step -1, :, start sentence]
+                    #print("PREV SEGMENT SCORE:", prev_segment_score) -> this is a single number
                     # if prev_segment_score > dtw_matrix[i-1,start,end].item():
                     #     pointers[i,start,end] = best_prev_segment
                     # else:
