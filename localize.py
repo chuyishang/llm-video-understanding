@@ -181,7 +181,6 @@ def align_text(text, original_text, steps, sent_model, num_workers, dtw=True, dt
         for i in range(1, len(steps)+1):
             step_scores = scores[i-1]
             #step_rankings = step_scores.argsort()[-len(steps):][::-1]
-            scores_diff = np.diff(step_scores) / step_scores[:-1]
             top_sent = step_scores[prev_start:].argmax(dim=-1).tolist()
             if top_sent < prev_start:
                 top_sent = step_scores[prev_start:].argmax(dim=-1).tolist() + prev_start
@@ -211,9 +210,27 @@ def align_text(text, original_text, steps, sent_model, num_workers, dtw=True, dt
             #print("STEP EMB SHAPE:", step_emb.shape)
             sims = []
             for i in range(start, end):
-                sims.append((index, i, sent_embs[i] @ step_emb))
-            sims_arr.append(sims)
-        print(sims_arr)
+                #sims.append((index, i, sent_embs[i] @ step_emb))
+                sims.append(sent_embs[i] @ step_emb)
+            relative_scores = [(b - max(sims)) / max(sims) for b in sims]
+            print(relative_scores)
+            heuristic = -0.6
+            start_counter, end_counter = 0, 0
+            for i in range(1, len(relative_scores)):
+                if (relative_scores[i] + relative_scores[i-1])/2 < heuristic:
+                    start_counter += 1
+                else:
+                    break
+            for j in range(len(relative_scores)-2, 0, -1):
+                if (relative_scores[j] + relative_scores[j+1])/2 < heuristic:
+                    end_counter += 1
+                else:
+                    break
+            print("INDEX", index, "START,END COUNTER:", start_counter, end_counter)
+            segments[index] = (start + start_counter, end - end_counter)
+            print(f"PROCESSED SEGMENT {index}")
+            #sims_arr.append(sims)
+        #print(sims_arr)
 
             
 
