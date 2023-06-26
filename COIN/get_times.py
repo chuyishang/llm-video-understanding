@@ -48,12 +48,15 @@ if __name__ == "__main__":
     with open(args.output_path + "outfile.json", "w") as outfile:
         json.dump(output_dict, outfile)
 
-    
+    print(output_dict)
     for label in output_dict:
         start = get_seconds(output_dict[label]["time_start"])
         end = get_seconds(output_dict[label]["time_end"])
         # DEBUG
-        print(start,end)
+        #print(start,end)
+        if start == end:
+            end = start + 1
+        print(start, end)
         clip = VideoFileClip(args.video_path).subclip(start, end)
         clip.write_videofile(args.output_path + "step" + str(label) + f"-{output_dict[label]['step_label']}" + ".mp4", temp_audiofile='temp-audio.m4a', remove_temp=True, codec="libx264", audio_codec="aac")
 
