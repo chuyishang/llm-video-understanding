@@ -11,7 +11,7 @@ import argparse
 from tqdm import tqdm
 #import en_core_web_sm
 import spacy
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, util
 import multiprocessing as mp
 import _io
 
@@ -171,33 +171,140 @@ def align_text(text, original_text, steps, sent_model, num_workers, dtw=True, dt
     else:
 
         sent_emb = sent_model.encode(sents)
-
-        scores = torch.matmul(torch.from_numpy(step_embs), torch.from_numpy(sent_emb).t())
+        #scores = torch.matmul(torch.from_numpy(step_embs), torch.from_numpy(sent_emb).t())
+        scores = util.cos_sim(step_embs, sent_emb)
         print("SENT EMB:", sent_emb.shape, "STEP EMB:", step_embs.shape, "SCORES", scores.shape)
-        #matched_sentences = scores.argmax(dim=-1).tolist()
-        prev_start = 0
-        segments = {}
+        drop_cost = np.percentile(scores.flatten(), 90)
 
-        for i in range(1, len(steps)+1):
-            step_scores = scores[i-1]
-            #step_rankings = step_scores.argsort()[-len(steps):][::-1]
-            top_sent = step_scores[prev_start:].argmax(dim=-1).tolist()
-            if top_sent < prev_start:
-                top_sent = step_scores[prev_start:].argmax(dim=-1).tolist() + prev_start
-            #print(steps[i-1], '|||', sents[matched_sentences[i-1]])
-            #segments[i] = (max(0, matched_sentences[i-1]-1), min(len(sents), matched_sentences[i-1]+2))
-            segments[i] = (max(0, top_sent - 1), min(len(sents), top_sent + 2))
-            prev_start = max(0, top_sent - 1)
-        #print("==============================")
-        #print("SEGMENTS LENGTH:", len(segments))
-        #print("SEGMENTS:", segments)
-        #print("==============================")
-    # text_sans_punct = remove_punctuation(text)
-    # assert text_sans_punct.lower() == ' '.join(original_text['text'])
-    #print("==========================")
-    #print("TEXT", text)
-    #print("ORIGINAL TEXT", original_text)
-    #print("==========================")
+
+        def traceback(D):
+            i, j = np.array(D.shape) - 2
+            p, q = [i], [j]
+            while (i > 0) or (j > 0):
+                tb = np.argmin((D[i, j], D[i, j + 1], D[i + 1, j]))
+                if tb == 0:
+                    i -= 1
+                    j -= 1
+                elif tb == 1:
+                    i -= 1
+                else:  # (tb == 2):
+                    j -= 1
+                p.insert(0, i)
+                q.insert(0, j)
+            return np.array(p), np.array(q)
+        
+        def drop_dtw(zx_costs, drop_costs, exclusive=True, contiguous=True, return_labels=False):
+            """Drop-DTW algorithm that allows drop only from one (video) side. See Algorithm 1 in the paper.
+        
+            Parameters
+            ----------
+            zx_costs: np.ndarray [K, N] 
+                pairwise match costs between K steps and N video clips
+            drop_costs: np.ndarray [N]
+                drop costs for each clip
+            exclusive: bool
+                If True any clip can be matched with only one step, not many.
+            contiguous: bool
+                if True, can only match a contiguous sequence of clips to a step
+                (i.e. no drops in between the clips)
+            return_label: bool
+                if True, returns output directly useful for segmentation computation (made for convenience)
+            """
+            K, N = zx_costs.shape
+            
+            # initialize solutin matrices
+            D = np.zeros([K + 1, N + 1, 2]) # the 2 last dimensions correspond to different states.
+                                            # State (dim) 0 - x is matched; State 1 - x is dropped
+            D[1:, 0, :] = np.inf  # no drops in z in any state
+            D[0, 1:, 0] = np.inf  # no drops in x in state 0, i.e. state where x is matched
+            D[0, 1:, 1] = np.cumsum(drop_costs)  # drop costs initizlization in state 1
+        
+            # initialize path tracking info for each state
+            P = np.zeros([K + 1, N + 1, 2, 3], dtype=int) 
+            for xi in range(1, N + 1):
+                P[0, xi, 1] = 0, xi - 1, 1
+            
+            # filling in the dynamic tables
+            for zi in range(1, K + 1):
+                for xi in range(1, N + 1):
+                    # define frequently met neighbors here
+                    diag_neigh_states = [0, 1] 
+                    diag_neigh_coords = [(zi - 1, xi - 1) for _ in diag_neigh_states]
+                    diag_neigh_costs = [D[zi - 1, xi - 1, s] for s in diag_neigh_states]
+        
+                    left_neigh_states = [0, 1]
+                    left_neigh_coords = [(zi, xi - 1) for _ in left_neigh_states]
+                    left_neigh_costs = [D[zi, xi - 1, s] for s in left_neigh_states]
+        
+                    left_pos_neigh_states = [0] if contiguous else left_neigh_states
+                    left_pos_neigh_coords = [(zi, xi - 1) for _ in left_pos_neigh_states]
+                    left_pos_neigh_costs = [D[zi, xi - 1, s] for s in left_pos_neigh_states]
+        
+                    top_pos_neigh_states = [0]
+                    top_pos_neigh_coords = [(zi - 1, xi) for _ in left_pos_neigh_states]
+                    top_pos_neigh_costs = [D[zi - 1, xi, s] for s in left_pos_neigh_states]
+        
+                    z_cost_ind, x_cost_ind = zi - 1, xi - 1  # indexind in costs is shifted by 1
+        
+                    # state 0: matching x to z
+                    if exclusive:
+                        neigh_states_pos = diag_neigh_states + left_pos_neigh_states
+                        neigh_coords_pos = diag_neigh_coords + left_pos_neigh_coords
+                        neigh_costs_pos = diag_neigh_costs + left_pos_neigh_costs
+                    else:
+                        neigh_states_pos = diag_neigh_states + left_pos_neigh_states + top_pos_neigh_states
+                        neigh_coords_pos = diag_neigh_coords + left_pos_neigh_coords + top_pos_neigh_coords
+                        neigh_costs_pos = diag_neigh_costs + left_pos_neigh_costs + top_pos_neigh_costs
+                    costs_pos = np.array(neigh_costs_pos) + zx_costs[z_cost_ind, x_cost_ind] 
+                    opt_ind_pos = np.argmin(costs_pos)
+                    P[zi, xi, 0] = *neigh_coords_pos[opt_ind_pos], neigh_states_pos[opt_ind_pos]
+                    D[zi, xi, 0] = costs_pos[opt_ind_pos]
+        
+                    # state 1: x is dropped
+                    costs_neg = np.array(left_neigh_costs) + drop_costs[x_cost_ind] 
+                    opt_ind_neg = np.argmin(costs_neg)
+                    P[zi, xi, 1] = *left_neigh_coords[opt_ind_neg], left_neigh_states[opt_ind_neg]
+                    D[zi, xi, 1] = costs_neg[opt_ind_neg]
+        
+            cur_state = D[K, N, :].argmin()
+            min_cost = D[K, N, cur_state]
+                    
+            # backtracking the solution
+            zi, xi = K, N
+            path, labels = [], np.zeros(N)
+            x_dropped = [] if cur_state == 1 else [N]
+            while not (zi == 0 and xi == 0):
+                path.append((zi, xi))
+                zi_prev, xi_prev, prev_state = P[zi, xi, cur_state]
+                if xi > 0:
+                    labels[xi - 1] = zi * (cur_state == 0)  # either zi or 0
+                if prev_state == 1:
+                    x_dropped.append(xi_prev)
+                zi, xi, cur_state = zi_prev, xi_prev, prev_state
+            
+            return min_cost, path, x_dropped, labels
+
+        drop_cost_array = np.ones(len(sents)) * drop_cost
+        ddtw_results = drop_dtw(-scores.numpy(), drop_cost_array, contiguous=True)
+        lst = ddtw_results[3]
+        idx = np.where(lst[1:] != lst[:-1])[0]
+        idx += 1
+        idx = np.insert(idx, 0, 0)
+        idx = np.append(idx, len(lst))
+        segs = {}
+        for i in range(len(steps)):
+            segs[i+1] = (idx[i]+1,idx[i+1])
+        drops = ddtw_results[2][::-1]
+        for drop in drops:
+            for i in segs:
+                if drop in range(segs[i][0],segs[i][1]):
+                    if drop == segs[i][0]:
+                        segs[i] = (segs[i][0]+1,segs[i][1])
+                    elif drop == segs[i][1]:
+                        segs[i] = (segs[i][0],segs[i][1]-1)
+                    else:
+                        print("FAILED TO DROP", drop)
+        segments = dict(reversed(list(segs.items())))
 
     if args.allow_drops:
         sent_embs = sent_model.encode(sents)
@@ -239,10 +346,10 @@ def align_text(text, original_text, steps, sent_model, num_workers, dtw=True, dt
     # print(postprocess_alignment)
     aligned_segments = {}
     sents = list(doc.sents)
-    print("====================")
-    print("SEGMENTS:", segments)
+    #print("====================")
+    #print("SEGMENTS:", segments)
     #print("POSTPROC ALIGN:", postprocess_alignment)
-    print("====================")
+    #print("====================")
     # print(text)
     # print(original_text)
     # print(' '.join(original_text['text']))
