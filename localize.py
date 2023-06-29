@@ -267,7 +267,7 @@ def align_text(text, original_text, steps, sent_model, num_workers, do_dtw=False
             
             return min_cost, path, x_dropped, labels
 
-        drop_cost = np.percentile(scores.flatten(), 25)
+        drop_cost = np.percentile(-scores.flatten(), 20)
         drop_cost_array = np.ones(len(sents)) * drop_cost
         ddtw_results = drop_dtw(-scores.numpy(), drop_cost_array, contiguous=True)
         segs = {}
@@ -277,11 +277,15 @@ def align_text(text, original_text, steps, sent_model, num_workers, do_dtw=False
                 continue
             indexes = np.where(ddtw_results[3] == s)[0] + 1
             segs[int(s)] = (min(indexes), max(indexes))
-        for i in segs:
+        print("SEGS", segs)
+        print("=======================\n")
+        for i in segs.keys():
+            print(i)
+            print(steps)
             step_sentences = []
             for i in range(segs[i][0], segs[i][1] + 1):
                 step_sentences.append(sents[i-1])
-            human_readable[f"{i}: {steps[i-1]}"] = step_sentences
+            human_readable[i] = step_sentences
         segments = dict(reversed(list(segs.items())))
         print("HUMAN READABLE:", human_readable)
     else:
@@ -363,7 +367,7 @@ def align_text(text, original_text, steps, sent_model, num_workers, do_dtw=False
         #print("==================")
         #print('ALIGNED:', ' '.join(original_text['text'][aligned_segments[index][0]:aligned_segments[index][2]+1]), sents[segments[index][0]:segments[index][1]])
         #print("==================")
-    return aligned_segments, human_readable
+    return aligned_segments
 
 def remove_repeat_ngrams(text_list, min_n=3, max_n=8, return_segment_ids=False):
     assert isinstance(text_list, list)
@@ -466,7 +470,7 @@ def process_video(video_id, args, input_steps, transcripts, tokenizer, punct_cap
                 steps = []
     output_dict = {"video_id": video_id, "steps": steps, "transcript": transcript}
     if not args.no_align:
-        segments = align_text(transcript, original, steps, sent_model, args.num_workers, args.do_dtw, args.drop_dtw, args.dtw_window_size)
+        segments = align_text(transcript, original, steps, sent_model, args.num_workers, args.do_dtw, args.do_drop_dtw, args.dtw_window_size)
         print(segments)
         output_dict["segments"] = segments
     if isinstance(output_queue, _io.TextIOWrapper):

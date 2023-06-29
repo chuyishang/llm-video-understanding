@@ -56,9 +56,12 @@ if __name__ == "__main__":
         #print(start,end)
         if start == end:
             end = start + 1
+            start = start - 1
+        elif start > end:
+            start, end = end, start
         print(start, end)
         clip = VideoFileClip(args.video_path).subclip(start, end)
-        clip.write_videofile(args.output_path + "step" + str(label) + f"-{output_dict[label]['step_label']}" + ".mp4", temp_audiofile='temp-audio.m4a', remove_temp=True, codec="libx264", audio_codec="aac")
+        clip.write_videofile(args.output_path + "step" + str(label) + f"-{output_dict[label]['step_label']}" + ".mp4")
 
 
 
