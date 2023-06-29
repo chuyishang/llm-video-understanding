@@ -14,6 +14,7 @@ import spacy
 from sentence_transformers import SentenceTransformer, util
 import multiprocessing as mp
 import _io
+from get_times import *
 
 f = open("/home/shang/openai-apikey.txt")
 #print(f.readlines()[0])
@@ -67,7 +68,7 @@ def remove_punctuation(text):
         new_text = new_text.replace(c, '')
     return new_text
 
-def align_text(text, original_text, steps, sent_model, num_workers, dtw=True, dtw_window_size=10000000000, dtw_start_offset=False):
+def align_text(text, original_text, steps, sent_model, num_workers, do_dtw=False, do_drop_dtw=True, dtw_window_size=10000000000, dtw_start_offset=False):
     #print("===================")
     doc = nlp(text)
     print("DOC:", doc)
@@ -80,7 +81,7 @@ def align_text(text, original_text, steps, sent_model, num_workers, dtw=True, dt
     #print("=========================")
     step_embs = sent_model.encode(steps)
     text = text.replace('ı', 'i')
-    if dtw:
+    if do_dtw:
         dtw_matrix = np.zeros((len(steps)+1, len(sents)+1, len(sents)+1)) # dtw matrix size [steps+1, sent+1, sent+1]
 
         #print("==========================")
@@ -168,30 +169,12 @@ def align_text(text, original_text, steps, sent_model, num_workers, dtw=True, dt
             segments[index] = (start, end)
             index -= 1
         #print("PRINT!!:", start_sent_index, segments)
-    else:
-
+    elif do_drop_dtw:
         sent_emb = sent_model.encode(sents)
         #scores = torch.matmul(torch.from_numpy(step_embs), torch.from_numpy(sent_emb).t())
         scores = util.cos_sim(step_embs, sent_emb)
         print("SENT EMB:", sent_emb.shape, "STEP EMB:", step_embs.shape, "SCORES", scores.shape)
-        drop_cost = np.percentile(scores.flatten(), 90)
-
-
-        def traceback(D):
-            i, j = np.array(D.shape) - 2
-            p, q = [i], [j]
-            while (i > 0) or (j > 0):
-                tb = np.argmin((D[i, j], D[i, j + 1], D[i + 1, j]))
-                if tb == 0:
-                    i -= 1
-                    j -= 1
-                elif tb == 1:
-                    i -= 1
-                else:  # (tb == 2):
-                    j -= 1
-                p.insert(0, i)
-                q.insert(0, j)
-            return np.array(p), np.array(q)
+        
         
         def drop_dtw(zx_costs, drop_costs, exclusive=True, contiguous=True, return_labels=False):
             """Drop-DTW algorithm that allows drop only from one (video) side. See Algorithm 1 in the paper.
@@ -259,7 +242,7 @@ def align_text(text, original_text, steps, sent_model, num_workers, dtw=True, dt
                     opt_ind_pos = np.argmin(costs_pos)
                     P[zi, xi, 0] = *neigh_coords_pos[opt_ind_pos], neigh_states_pos[opt_ind_pos]
                     D[zi, xi, 0] = costs_pos[opt_ind_pos]
-        
+
                     # state 1: x is dropped
                     costs_neg = np.array(left_neigh_costs) + drop_costs[x_cost_ind] 
                     opt_ind_neg = np.argmin(costs_neg)
@@ -284,27 +267,26 @@ def align_text(text, original_text, steps, sent_model, num_workers, dtw=True, dt
             
             return min_cost, path, x_dropped, labels
 
+        drop_cost = np.percentile(scores.flatten(), 25)
         drop_cost_array = np.ones(len(sents)) * drop_cost
         ddtw_results = drop_dtw(-scores.numpy(), drop_cost_array, contiguous=True)
-        lst = ddtw_results[3]
-        idx = np.where(lst[1:] != lst[:-1])[0]
-        idx += 1
-        idx = np.insert(idx, 0, 0)
-        idx = np.append(idx, len(lst))
         segs = {}
-        for i in range(len(steps)):
-            segs[i+1] = (idx[i]+1,idx[i+1])
-        drops = ddtw_results[2][::-1]
-        for drop in drops:
-            for i in segs:
-                if drop in range(segs[i][0],segs[i][1]):
-                    if drop == segs[i][0]:
-                        segs[i] = (segs[i][0]+1,segs[i][1])
-                    elif drop == segs[i][1]:
-                        segs[i] = (segs[i][0],segs[i][1]-1)
-                    else:
-                        print("FAILED TO DROP", drop)
+        human_readable = {}
+        for s in np.unique(ddtw_results[3]):
+            if s==0:
+                continue
+            indexes = np.where(ddtw_results[3] == s)[0] + 1
+            segs[int(s)] = (min(indexes), max(indexes))
+        for i in segs:
+            step_sentences = []
+            for i in range(segs[i][0], segs[i][1] + 1):
+                step_sentences.append(sents[i-1])
+            human_readable[f"{i}: {steps[i-1]}"] = step_sentences
         segments = dict(reversed(list(segs.items())))
+        print("HUMAN READABLE:", human_readable)
+    else:
+        print("ERROR!")
+        return
 
     if args.allow_drops:
         sent_embs = sent_model.encode(sents)
@@ -381,7 +363,7 @@ def align_text(text, original_text, steps, sent_model, num_workers, dtw=True, dt
         #print("==================")
         #print('ALIGNED:', ' '.join(original_text['text'][aligned_segments[index][0]:aligned_segments[index][2]+1]), sents[segments[index][0]:segments[index][1]])
         #print("==================")
-    return aligned_segments
+    return aligned_segments, human_readable
 
 def remove_repeat_ngrams(text_list, min_n=3, max_n=8, return_segment_ids=False):
     assert isinstance(text_list, list)
@@ -484,9 +466,8 @@ def process_video(video_id, args, input_steps, transcripts, tokenizer, punct_cap
                 steps = []
     output_dict = {"video_id": video_id, "steps": steps, "transcript": transcript}
     if not args.no_align:
-        segments = align_text(transcript, original, steps, sent_model, args.num_workers, not args.no_dtw, args.dtw_window_size)
+        segments = align_text(transcript, original, steps, sent_model, args.num_workers, args.do_dtw, args.drop_dtw, args.dtw_window_size)
         print(segments)
-        #print("HERE")
         output_dict["segments"] = segments
     if isinstance(output_queue, _io.TextIOWrapper):
         output_queue.write(json.dumps(output_dict)+'\n')
@@ -517,9 +498,11 @@ if __name__ == "__main__":
     parser.add_argument("--no_align", action="store_true")
     parser.add_argument("--input_steps_path", type=str, default=None)
     parser.add_argument("--num_workers", type=int, default=1)
-    parser.add_argument("--no_dtw", action="store_true")
+    parser.add_argument("--do_dtw", action="store_true")
     parser.add_argument("--dtw_window_size", type=int, default=1000000)
     parser.add_argument("--allow_drops", action="store_true")
+    parser.add_argument("--do_drop_dtw", action="store_true")
+    parser.add_argument("--drop_cost_pct", default=25)
     args = parser.parse_args()
 
     if not args.no_align:
