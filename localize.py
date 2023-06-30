@@ -68,13 +68,16 @@ def remove_punctuation(text):
         new_text = new_text.replace(c, '')
     return new_text
 
-def align_text(text, original_text, steps, sent_model, num_workers, do_dtw=False, do_drop_dtw=True, dtw_window_size=10000000000, dtw_start_offset=False):
+def align_text(text, original_text, steps, sent_model, num_workers, do_dtw=False, do_drop_dtw=True, dtw_window_size=10000000000, dtw_start_offset=False, id=None):
     #print("===================")
     doc = nlp(text)
     print("DOC:", doc)
     #print("===================")
     sents = [str(sent) for sent in list(doc.sents)]
-    steps = steps[:len(sents)]
+    if args.gen_steps:
+        steps = args.gen_steps.split(",")
+    else:
+        steps = steps[:len(sents)]
     print("=========================")
     print("SENTS:", len(sents), sents)
     print("STEPS:", len(steps), steps)
@@ -283,11 +286,13 @@ def align_text(text, original_text, steps, sent_model, num_workers, do_dtw=False
             print(i)
             print(steps)
             step_sentences = []
-            for i in range(segs[i][0], segs[i][1] + 1):
-                step_sentences.append(sents[i-1])
+            for f in range(segs[i][0], segs[i][1] + 1):
+                step_sentences.append(sents[f-1])
             human_readable[i] = step_sentences
         segments = dict(reversed(list(segs.items())))
         print("HUMAN READABLE:", human_readable)
+        with open(args.hr_folder + id + ".json", "w") as outfile:
+                json.dump(human_readable, outfile)
     else:
         print("ERROR!")
         return
@@ -341,9 +346,18 @@ def align_text(text, original_text, steps, sent_model, num_workers, do_dtw=False
     # print(' '.join(original_text['text']))
     # print(max(list(postprocess_alignment.keys())), [sents[segments[index][0]].start_char for index in segments], [text[sents[segments[index][0]].start_char:sents[segments[index][1]-1].end_char] for index in segments])
     for index in segments:
-        while str(sents[segments[index][0]]).isspace():
+        print("DEBUG:", segments[index][0], len(sents), sents)
+        
+        # TEMP FIX
+        TEMP_FIX_INDEX = segments[index][0]
+        if segments[index][0] == len(sents):
+            TEMP_FIX_INDEX -= 1
+
+        while str(sents[TEMP_FIX_INDEX]).isspace():
+            print(f"===========\n{index}\n==============\n")
             segments[index] = (segments[index][0]-1, segments[index][1])
-        start = sents[segments[index][0]].start_char
+        # TEMP FIX:
+        start = sents[TEMP_FIX_INDEX].start_char
         #print("================")
         #print("START:", start)
         #print("================")
@@ -441,7 +455,10 @@ def process_video(video_id, args, input_steps, transcripts, tokenizer, punct_cap
     while len(tokens["input_ids"]) > 1600:
         transcript = transcript[:-100]
         tokens = tokenizer(transcript)
-    if args.input_steps_path is not None:
+    
+    if args.gen_steps is not None:
+        steps = args.gen_steps.split(",")
+    elif args.input_steps_path is not None:
         if video_id not in input_steps:
             return
         steps = input_steps[video_id]["steps"]
@@ -470,7 +487,7 @@ def process_video(video_id, args, input_steps, transcripts, tokenizer, punct_cap
                 steps = []
     output_dict = {"video_id": video_id, "steps": steps, "transcript": transcript}
     if not args.no_align:
-        segments = align_text(transcript, original, steps, sent_model, args.num_workers, args.do_dtw, args.do_drop_dtw, args.dtw_window_size)
+        segments = align_text(transcript, original, steps, sent_model, args.num_workers, args.do_dtw, args.do_drop_dtw, args.dtw_window_size, id=video_id)
         print(segments)
         output_dict["segments"] = segments
     if isinstance(output_queue, _io.TextIOWrapper):
@@ -507,6 +524,8 @@ if __name__ == "__main__":
     parser.add_argument("--allow_drops", action="store_true")
     parser.add_argument("--do_drop_dtw", action="store_true")
     parser.add_argument("--drop_cost_pct", default=25)
+    parser.add_argument("--hr_folder")
+    parser.add_argument("--gen_steps", type=str, default=None)
     args = parser.parse_args()
 
     if not args.no_align:
@@ -523,9 +542,9 @@ if __name__ == "__main__":
     tokenizer = AutoTokenizer.from_pretrained("gpt2")
 
     f = open(args.video_list_path)
-    lines = f.readlines()
+    lines = f.readlines()[0]
     #print("LINES:", lines)
-    video_ids = lines
+    video_ids = lines.split(",")
     #video_ids = [line.strip().split()[0].split('.')[0] for line in lines]
     transcripts = None
     if args.transcripts_path[-5:] == ".json":
