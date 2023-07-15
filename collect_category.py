@@ -5,16 +5,15 @@ import webvtt
 
 f = open("/shared/medhini/COIN/COIN.json")
 data = json.load(f)["database"]
+dic = {}
 category = []
-
 for item in data:
-    print(item)
-    if data[item]["class"] == "MakeBurger":
-        category.append(item)
+    if data[item]["class"] not in dic:
+        dic[data[item]["class"]] = {}
+        dic[data[item]["class"]]["ids"] = []
+    dic[data[item]["class"]]["ids"].append(item)
+for category in dic:
+    dic[category]["ids"]  = ",".join(dic[category]["ids"])
 
-item_list = ",".join(category)
-
-
-
-with open("./COIN/burger/burger_list.txt","w") as f:
-    f.write(item_list)
+with open("./COIN/base/coin_categories.json","w") as f:
+    json.dump(dic, f)

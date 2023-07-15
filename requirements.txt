@@ -3,4 +3,4 @@ openai
 transformers
 tqdm
 spacy
-sentence_transformerss
+sentence_transformers

@@ -89,7 +89,10 @@ if __name__ == "__main__":
                 print(start, end)
                 video_file_path = args.video_path + "/" + output_dict["video_id"] + ".mp4"
                 clip = VideoFileClip(video_file_path).subclip(start, end)
-                clip.write_videofile(path + "step" + str(label) + f"-{output_dict[label]['step_label']}" + ".mp4")
+                try:
+                    clip.write_videofile(path + "step" + str(label) + f"-{output_dict[label]['step_label']}" + ".mp4")
+                except:
+                    clip.write_videofile(path + "step" + str(label) + ".mp4")
             start_idx += 1
 
 
