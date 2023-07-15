@@ -71,26 +71,24 @@ def remove_punctuation(text):
 def align_text(text, original_text, steps, sent_model, num_workers, do_dtw=False, do_drop_dtw=True, dtw_window_size=10000000000, dtw_start_offset=False, id=None):
     #print("===================")
     doc = nlp(text)
-    print("DOC:", doc)
+    #print("DOC:", doc)
     #print("===================")
     sents = [str(sent) for sent in list(doc.sents)]
     if args.gen_steps:
-        steps = args.gen_steps.split(",")
+        steps = args.gen_steps.split("\\n")
     else:
         steps = steps[:len(sents)]
-    print("=========================")
-    print("SENTS:", len(sents), sents)
-    print("STEPS:", len(steps), steps)
+    #("=========================")
+    #print("SENTS:", len(sents), sents)
+    #print("STEPS:", len(steps), steps)
     #print("=========================")
     step_embs = sent_model.encode(steps)
     text = text.replace('ı', 'i')
     if do_dtw:
         dtw_matrix = np.zeros((len(steps)+1, len(sents)+1, len(sents)+1)) # dtw matrix size [steps+1, sent+1, sent+1]
-
         #print("==========================")
         #print(dtw_matrix.shape)
         #print("==========================")
-
         for i in range(len(steps)+1):
             for start in range(len(sents)+1):
                 for end in range(len(sents)+1):
@@ -176,7 +174,7 @@ def align_text(text, original_text, steps, sent_model, num_workers, do_dtw=False
         sent_emb = sent_model.encode(sents)
         #scores = torch.matmul(torch.from_numpy(step_embs), torch.from_numpy(sent_emb).t())
         scores = util.cos_sim(step_embs, sent_emb)
-        print("SENT EMB:", sent_emb.shape, "STEP EMB:", step_embs.shape, "SCORES", scores.shape)
+        #print("SENT EMB:", sent_emb.shape, "STEP EMB:", step_embs.shape, "SCORES", scores.shape)
         
         
         def drop_dtw(zx_costs, drop_costs, exclusive=True, contiguous=True, return_labels=False):
@@ -273,26 +271,30 @@ def align_text(text, original_text, steps, sent_model, num_workers, do_dtw=False
         drop_cost = np.percentile(-scores.flatten(), 20)
         drop_cost_array = np.ones(len(sents)) * drop_cost
         ddtw_results = drop_dtw(-scores.numpy(), drop_cost_array, contiguous=True)
+        
         segs = {}
-        human_readable = {}
+       
         for s in np.unique(ddtw_results[3]):
             if s==0:
                 continue
             indexes = np.where(ddtw_results[3] == s)[0] + 1
             segs[int(s)] = (min(indexes), max(indexes))
-        print("SEGS", segs)
-        print("=======================\n")
-        for i in segs.keys():
-            print(i)
-            print(steps)
-            step_sentences = []
-            for f in range(segs[i][0], segs[i][1] + 1):
-                step_sentences.append(sents[f-1])
-            human_readable[i] = step_sentences
+        #print("SEGS", segs)
+        #print("=======================\n")
+        if args.hr_folder:
+            human_readable = {}
+            for i in segs.keys():
+                print(i)
+                print(steps)
+                step_sentences = []
+                for f in range(segs[i][0], segs[i][1] + 1):
+                    step_sentences.append(sents[f-1])
+                human_readable[i] = step_sentences
+                with open(args.hr_folder + id + ".json", "w") as outfile:
+                    json.dump(human_readable, outfile)
         segments = dict(reversed(list(segs.items())))
-        print("HUMAN READABLE:", human_readable)
-        with open(args.hr_folder + id + ".json", "w") as outfile:
-                json.dump(human_readable, outfile)
+        #print("HUMAN READABLE:", human_readable)
+        
     else:
         print("ERROR!")
         return
@@ -311,7 +313,7 @@ def align_text(text, original_text, steps, sent_model, num_workers, do_dtw=False
                 #sims.append((index, i, sent_embs[i] @ step_emb))
                 sims.append(sent_embs[i] @ step_emb)
             relative_scores = [(b - max(sims)) / max(sims) for b in sims]
-            print(relative_scores)
+            #print(relative_scores)
             heuristic = -0.6
             start_counter, end_counter = 0, 0
             for i in range(1, len(relative_scores)):
@@ -324,7 +326,7 @@ def align_text(text, original_text, steps, sent_model, num_workers, do_dtw=False
                     end_counter += 1
                 else:
                     break
-            print("INDEX", index, "START,END COUNTER:", start_counter, end_counter)
+            #print("INDEX", index, "START,END COUNTER:", start_counter, end_counter)
             segments[index] = (start + start_counter, end - end_counter)
             print(f"PROCESSED SEGMENT {index}")
             #sims_arr.append(sims)
@@ -346,7 +348,7 @@ def align_text(text, original_text, steps, sent_model, num_workers, do_dtw=False
     # print(' '.join(original_text['text']))
     # print(max(list(postprocess_alignment.keys())), [sents[segments[index][0]].start_char for index in segments], [text[sents[segments[index][0]].start_char:sents[segments[index][1]-1].end_char] for index in segments])
     for index in segments:
-        print("DEBUG:", segments[index][0], len(sents), sents)
+        #print("DEBUG:", segments[index][0], len(sents), sents)
         
         # TEMP FIX
         TEMP_FIX_INDEX = segments[index][0]
@@ -354,7 +356,7 @@ def align_text(text, original_text, steps, sent_model, num_workers, do_dtw=False
             TEMP_FIX_INDEX -= 1
 
         while str(sents[TEMP_FIX_INDEX]).isspace():
-            print(f"===========\n{index}\n==============\n")
+            #print(f"===========\n{index}\n==============\n")
             segments[index] = (segments[index][0]-1, segments[index][1])
         # TEMP FIX:
         start = sents[TEMP_FIX_INDEX].start_char
@@ -422,9 +424,13 @@ def remove_repeat_ngrams(text_list, min_n=3, max_n=8, return_segment_ids=False):
 
 def process_video(video_id, args, input_steps, transcripts, tokenizer, punct_cap_model, output_queue):
     prompt = "Write the steps of the task that the person is demonstrating, based on the noisy transcript.\nTranscript: |||1\nSteps:\n1."
-    print('here3')
+    #print('here3')
     if transcripts is not None:
-        original = transcripts[video_id]
+        try:
+            original = transcripts[video_id]
+        except:
+            print(video_id)
+            return
     else:
         f = open(os.path.join(args.transcripts_path, video_id+".csv"))
         lines = f.readlines()
@@ -451,13 +457,13 @@ def process_video(video_id, args, input_steps, transcripts, tokenizer, punct_cap
         else:
             transcript = punct_cap_model.add_punctuation_capitalization([transcript])[0]
     tokens = tokenizer(transcript)
-    print(video_id, len(transcript), len(tokens["input_ids"]))
+    #print(video_id, len(transcript), len(tokens["input_ids"]))
     while len(tokens["input_ids"]) > 1600:
         transcript = transcript[:-100]
         tokens = tokenizer(transcript)
     
     if args.gen_steps is not None:
-        steps = args.gen_steps.split(",")
+        steps = args.gen_steps.split("\\n")
     elif args.input_steps_path is not None:
         if video_id not in input_steps:
             return
@@ -480,7 +486,7 @@ def process_video(video_id, args, input_steps, transcripts, tokenizer, punct_cap
                         )
             output = response["choices"][0]["text"].strip()
             num_attempts += 1
-            steps = output.split("\n")
+            steps = output.split("\\n")
             if all(["." in step for step in steps[1:]]):
                 steps = steps[:1]+[step[step.index(".")+1:].strip() for step in steps[1:]]
             elif num_attempts < args.max_attempts:
@@ -488,7 +494,7 @@ def process_video(video_id, args, input_steps, transcripts, tokenizer, punct_cap
     output_dict = {"video_id": video_id, "steps": steps, "transcript": transcript}
     if not args.no_align:
         segments = align_text(transcript, original, steps, sent_model, args.num_workers, args.do_dtw, args.do_drop_dtw, args.dtw_window_size, id=video_id)
-        print(segments)
+        #print(segments)
         output_dict["segments"] = segments
     if isinstance(output_queue, _io.TextIOWrapper):
         output_queue.write(json.dumps(output_dict)+'\n')
