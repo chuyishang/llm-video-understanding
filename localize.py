@@ -14,7 +14,7 @@ import spacy
 from sentence_transformers import SentenceTransformer, util
 import multiprocessing as mp
 import _io
-from get_times import *
+#from get_times import *
 
 f = open("/home/shang/openai-apikey.txt")
 #print(f.readlines()[0])
@@ -68,14 +68,14 @@ def remove_punctuation(text):
         new_text = new_text.replace(c, '')
     return new_text
 
-def align_text(text, original_text, steps, sent_model, num_workers, do_dtw=False, do_drop_dtw=True, dtw_window_size=10000000000, dtw_start_offset=False, id=None):
+def align_text(text, original_text, steps, sent_model, num_workers, gen_steps, do_dtw=False, do_drop_dtw=True, dtw_window_size=10000000000, dtw_start_offset=False, id=None):
     #print("===================")
     doc = nlp(text)
     #print("DOC:", doc)
     #print("===================")
     sents = [str(sent) for sent in list(doc.sents)]
     if args.gen_steps:
-        steps = args.gen_steps.split("\\n")
+        steps = gen_steps
     else:
         steps = steps[:len(sents)]
     #("=========================")
@@ -195,6 +195,9 @@ def align_text(text, original_text, steps, sent_model, num_workers, do_dtw=False
                 if True, returns output directly useful for segmentation computation (made for convenience)
             """
             K, N = zx_costs.shape
+            print("STEP COUNT: ", K)
+            print("SENTENCE COUNT: ", N)
+            print("=====================")
             
             # initialize solutin matrices
             D = np.zeros([K + 1, N + 1, 2]) # the 2 last dimensions correspond to different states.
@@ -279,13 +282,13 @@ def align_text(text, original_text, steps, sent_model, num_workers, do_dtw=False
                 continue
             indexes = np.where(ddtw_results[3] == s)[0] + 1
             segs[int(s)] = (min(indexes), max(indexes))
-        #print("SEGS", segs)
-        #print("=======================\n")
+        print("SEGS", segs)
+        print("=======================\n")
         if args.hr_folder:
             human_readable = {}
             for i in segs.keys():
-                print(i)
-                print(steps)
+                #print(i)
+                #print(steps)
                 step_sentences = []
                 for f in range(segs[i][0], segs[i][1] + 1):
                     step_sentences.append(sents[f-1])
@@ -328,7 +331,7 @@ def align_text(text, original_text, steps, sent_model, num_workers, do_dtw=False
                     break
             #print("INDEX", index, "START,END COUNTER:", start_counter, end_counter)
             segments[index] = (start + start_counter, end - end_counter)
-            print(f"PROCESSED SEGMENT {index}")
+            #print(f"PROCESSED SEGMENT {index}")
             #sims_arr.append(sims)
         #print(sims_arr)
 
@@ -422,14 +425,14 @@ def remove_repeat_ngrams(text_list, min_n=3, max_n=8, return_segment_ids=False):
         return ' '.join(new_tokens), new_segment_ids
     return ' '.join(new_tokens)
 
-def process_video(video_id, args, input_steps, transcripts, tokenizer, punct_cap_model, output_queue):
+def process_video(video_id, args, input_steps, transcripts, tokenizer, punct_cap_model, output_queue, gen_steps, category):
     prompt = "Write the steps of the task that the person is demonstrating, based on the noisy transcript.\nTranscript: |||1\nSteps:\n1."
     #print('here3')
     if transcripts is not None:
         try:
             original = transcripts[video_id]
         except:
-            print(video_id)
+            #print(video_id)
             return
     else:
         f = open(os.path.join(args.transcripts_path, video_id+".csv"))
@@ -462,8 +465,8 @@ def process_video(video_id, args, input_steps, transcripts, tokenizer, punct_cap
         transcript = transcript[:-100]
         tokens = tokenizer(transcript)
     
-    if args.gen_steps is not None:
-        steps = args.gen_steps.split("\\n")
+    if gen_steps is not None:
+        steps = gen_steps.split("\n")
     elif args.input_steps_path is not None:
         if video_id not in input_steps:
             return
@@ -493,9 +496,10 @@ def process_video(video_id, args, input_steps, transcripts, tokenizer, punct_cap
                 steps = []
     output_dict = {"video_id": video_id, "steps": steps, "transcript": transcript}
     if not args.no_align:
-        segments = align_text(transcript, original, steps, sent_model, args.num_workers, args.do_dtw, args.do_drop_dtw, args.dtw_window_size, id=video_id)
+        segments = align_text(transcript, original, steps, sent_model, args.num_workers, steps, args.do_dtw, args.do_drop_dtw, args.dtw_window_size, id=video_id)
         #print(segments)
         output_dict["segments"] = segments
+        output_dict["category"] = category
     if isinstance(output_queue, _io.TextIOWrapper):
         output_queue.write(json.dumps(output_dict)+'\n')
     else:
@@ -539,10 +543,8 @@ if __name__ == "__main__":
             sent_model = SentenceTransformer('sentence-transformers/paraphrase-mpnet-base-v2').cpu()
         else:
             sent_model = SentenceTransformer('sentence-transformers/paraphrase-mpnet-base-v2').cuda()
-    # sent_model = AutoModel.from_pretrained('sentence-transformers/paraphrase-mpnet-base-v2').cuda()
     if not args.no_formatting:
         punct_cap_model = PunctuationCapitalizationModel.from_pretrained("punctuation_en_bert")
-        #punct_cap_model = None
         if args.cpu:
             punct_cap_model = punct_cap_model.cpu()
     tokenizer = AutoTokenizer.from_pretrained("gpt2")
@@ -551,7 +553,7 @@ if __name__ == "__main__":
     lines = f.readlines()[0]
     #print("LINES:", lines)
     video_ids = lines.split(",")
-    #video_ids = [line.strip().split()[0].split('.')[0] for line in lines]
+
     transcripts = None
     if args.transcripts_path[-5:] == ".json":
         f = open(args.transcripts_path)
@@ -573,7 +575,9 @@ if __name__ == "__main__":
         fout = open(args.output_path, 'a')
     else:
         fout = open(args.output_path, 'w')
+    
     input_steps = None
+    
     if args.input_steps_path is not None:
         f = open(args.input_steps_path)
         lines = f.readlines()
@@ -585,11 +589,28 @@ if __name__ == "__main__":
     watcher = pool.apply_async(output_listener, (q, args.output_path))
     print('here1', pool._processes)
     jobs = []"""
-    for video_id in tqdm(video_ids):
-        if video_id in finished:
-            continue
-        # job = pool.apply_async(process_video, (video_id, args, input_steps, transcripts, tokenizer, punct_cap_model, q))
-        process_video(video_id, args, input_steps, transcripts, tokenizer, punct_cap_model, fout)
+    if args.gen_steps is not None:
+        gen_file = open(args.gen_steps)
+        gen = json.load(gen_file)
+
+    for category in gen:
+        print("CATEGORY: ", category)
+        gen_dict = gen[category]
+        print(gen_dict)
+        #fout = open(f"{fout}{category}.json", 'w')
+        cat_id_list = gen_dict["ids"].split(",")
+        if args.start_index and args.end_index:
+            cat_id_list = cat_id_list[args.start_index : args.end_index]
+        
+        #with mp.Pool(args.num_workers) as p:
+        #    p.starmap(process_video, [(video_id, args, input_steps, transcripts, tokenizer, punct_cap_model, fout, gen_dict["general steps"], category) for video_id in cat_id_list])
+        
+        
+        for video_id in tqdm(cat_id_list):
+            #print("HERE")
+            #print(video_id)
+            process_video(video_id, args, input_steps, transcripts, tokenizer, punct_cap_model, fout, gen_dict["general steps"], category)
+            
         # print('here', len(jobs))
         # jobs.append(job)
     """for job in jobs:
